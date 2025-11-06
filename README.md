@@ -1,6 +1,10 @@
 # purpIe-NPCController
 
-A comprehensive Hades 2 mod that gives you precise control over NPC encounter frequencies, spawn conditions, and story room availability. Perfect for players who want to customize their interaction with the game's supporting cast.
+A comprehensive Hades 2 mod that gives you precise control over NPC encounter frequencies, spawn conditions, and story room availability.
+
+Control Artemis chance in Ephyra. No more waiting forever to see her!
+Want to never see Heracles again? You got it.
+Want to never see a natural spawn Athena again? Done.
 
 ## Features
 
