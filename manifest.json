@@ -1,6 +1,6 @@
 {
   "namespace": "purpIe",
-  "name": "NPC Spawner Controller",
+  "name": "NPC_Spawn_Controller",
   "description": "Control the chance of npc encounter and toggle npc story rooms.",
   "version_number": "1.0.0",
   "dependencies": [
