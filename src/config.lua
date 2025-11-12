@@ -10,12 +10,12 @@ return {
 		N = { Enabled = false },
 		O = { Enabled = false },
 		P = { Enabled = false },
-	},	-- NPC Assist Spawn Values (1 = normal, 2 = double chance, 0 = never)
+	},	-- NPC Assist Spawn Values (out of 100)
 	NPCSpawnValues = {
-		Artemis = 1,
-		Heracles = 1,
-		Athena = 1,
-		Icarus = 1,
+		Artemis = 10,
+		Heracles = 10,
+		Athena = 10,
+		Icarus = 10,
 		HeraclesBiomes = {
 			Ephyra = true,
 			Rift = true,
