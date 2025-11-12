@@ -345,7 +345,7 @@ function DrawNPCChanceUI()
                 config.NPCSpawnValues.IcarusBiomes.Olympus = icarusOlympusValue
             end
 
-            local icarusValue, icarusChanged = rom.ImGui.InputInt("Desired Chance (%)##Icarus", config.NPCSpawnValues.Icarus)
+            local icarusValue, icarusChanged = rom.ImGui.SliderInt("Desired Chance (%)##Icarus", config.NPCSpawnValues.Icarus, 0, 99)
             if icarusChanged then
                 config.NPCSpawnValues.Icarus = icarusValue
             end
