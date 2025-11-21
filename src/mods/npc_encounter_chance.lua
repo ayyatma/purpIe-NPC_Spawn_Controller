@@ -3,39 +3,14 @@
 
 local mods = rom.mods
 
-	-- Override the NPC spacing requirement
-NamedRequirementsData.NoRecentFieldNPCEncounter[1].SumPrevRooms = config.NPCSpawnValues.NPCSpacing
 
--- Override the min depth requirements for Artemis, Athena, and Icarus
-EncounterData.BaseArtemisCombat.GameStateRequirements[3].Value = config.NPCSpawnValues.MinDepthArtemis
-EncounterData.BaseAthenaCombat.GameStateRequirements[3].Value = config.NPCSpawnValues.MinDepthAthena
-EncounterData.BaseIcarusCombat.GameStateRequirements[2].Value = config.NPCSpawnValues.MinDepthIcarus
-
--- Force story rooms at specific depths if enabled
-if config.AlwaysEncounterStoryRooms.F.Enabled then
-    RoomSetData.F.F_Story01.ForceAtBiomeDepthMin = 4
-    RoomSetData.F.F_Story01.ForceAtBiomeDepthMax = 8
-end
-if config.AlwaysEncounterStoryRooms.G.Enabled then
-    RoomSetData.G.G_Story01.ForceAtBiomeDepthMin = 3
-    RoomSetData.G.G_Story01.ForceAtBiomeDepthMax = 6
-end
-if config.AlwaysEncounterStoryRooms.N.Enabled then
-    RoomSetData.N.N_Story01.ForceAtBiomeDepthMin = 0
-    RoomSetData.N.N_Story01.ForceAtBiomeDepthMax = 1
-end
-if config.AlwaysEncounterStoryRooms.O.Enabled then
-    RoomSetData.O.O_Story01.ForceAtBiomeDepthMin = 3
-    RoomSetData.O.O_Story01.ForceAtBiomeDepthMax = 5
-end
-if config.AlwaysEncounterStoryRooms.P.Enabled then
-    RoomSetData.P.P_Story01.ForceAtBiomeDepthMin = 2
-    RoomSetData.P.P_Story01.ForceAtBiomeDepthMax = 7
-end
--- I_Story01 (Hades) natively forced
-
--- Wrap ChooseEncounter to boost Artemis encounter selection
+    -- Wrap ChooseEncounter to boost Artemis encounter selection
 modutil.mod.Path.Wrap("ChooseEncounter", function(base, currentRun, room, args)
+
+    -- If the feature is toggled off at runtime or we don't have a current run, just call base
+    if not config.NPCSpawnController or not currentRun then
+        return base(currentRun, room, args)
+    end
 
     -- Helper function to calculate required boost (x1) and dilution (x2)
     local function calculateBoost(target_y, Ninitial, na)
@@ -123,19 +98,6 @@ modutil.mod.Path.Wrap("ChooseEncounter", function(base, currentRun, room, args)
     args = args or {}
 	local legalEncounters = args.LegalEncounters or room.LegalEncounters
 
-
-	-- Initialize spawn flags if currentRun exists
-	if currentRun then
-		currentRun.UseRecord = currentRun.UseRecord or {}
-		currentRun.SpawnRecord = currentRun.SpawnRecord or {}
-
-		currentRun.UseRecord.NPC_Artemis_Field_01 = currentRun.UseRecord.NPC_Artemis_Field_01 or false
-		currentRun.SpawnRecord.NPC_Heracles_01 = currentRun.SpawnRecord.NPC_Heracles_01 or false
-		currentRun.SpawnRecord.NPC_Athena_01 = currentRun.SpawnRecord.NPC_Athena_01 or false
-		currentRun.SpawnRecord.NPC_Icarus_01 = currentRun.SpawnRecord.NPC_Icarus_01 or false
-        print("CurrentRun spawn flags - Artemis:", currentRun.UseRecord.NPC_Artemis_Field_01, "Heracles:", currentRun.SpawnRecord.NPC_Heracles_01, "Athena:", currentRun.SpawnRecord.NPC_Athena_01, "Icarus:", currentRun.SpawnRecord.NPC_Icarus_01)
-	end
-
     if legalEncounters then
 
         -- Define the set of valid biome suffixes
@@ -156,36 +118,64 @@ modutil.mod.Path.Wrap("ChooseEncounter", function(base, currentRun, room, args)
         -- STEP 1: PRE-CALCULATION PHASE
         local unique_list, seen, eligible_npcs = {}, {}, {}
         local generated_encName = nil -- The single unique name for dilution
+        
+        currentRun.SpawnRecord = currentRun.SpawnRecord or {}
         for _, enc in ipairs(legalEncounters) do
             if not seen[enc] then
                 seen[enc] = true
                 if not isExcluded(enc) then
-                    table.insert(unique_list, enc)
-                    -- Find the "Generated" encounter (Dilution Target)
+                    -- Determine whether this encounter should be present at all.
+                    -- If a specific NPC is explicitly disabled (chance == 0), already spawned, or disallowed in this biome,
+                    -- skip adding it to the unique list so the game's base logic cannot select it.
+                    local shouldInclude = true
+                    -- Find the "Generated" encounter (Dilution Target) regardless; keep first seen
                     if not generated_encName and enc:find("Generated") then
                         generated_encName = enc
                     end
 
-                    -- Guard condition: Only check for boosting if the encounter is a standard combat encounter (ends in a biome code)
                     if isCombatEncounter(enc) then
-                        local biomeDepth = currentRun.BiomeDepthCache or 0
+                        local biomeDepth = (currentRun and currentRun.BiomeDepthCache) or 0
 
-                        if enc:find("Artemis") and not currentRun.UseRecord.NPC_Artemis_Field_01 and biomeDepth > config.NPCSpawnValues.MinDepthArtemis then
-                            eligible_npcs.Artemis = enc
-                        elseif enc:find("Heracles") and not currentRun.SpawnRecord.NPC_Heracles_01 and biomeDepth > config.NPCSpawnValues.MinDepthHeracles then
+                        if enc:find("Artemis") then
+                            -- Disable entirely if user set chance to 0, it already spawned, or below min depth
+                            if (config.NPCSpawnValues.Artemis or 0) == 0 or currentRun.SpawnRecord.NPC_Artemis_Field_01 or biomeDepth <= config.NPCSpawnValues.MinDepthArtemis then
+                                shouldInclude = false
+                            else
+                                eligible_npcs.Artemis = enc
+                            end
+
+                        elseif enc:find("Heracles") then
                             local allow = true
                             if room.RoomSetName == "N" and not config.NPCSpawnValues.HeraclesBiomes.Ephyra then allow = false end
                             if room.RoomSetName == "O" and not config.NPCSpawnValues.HeraclesBiomes.Rift then allow = false end
                             if room.RoomSetName == "P" and not config.NPCSpawnValues.HeraclesBiomes.Olympus then allow = false end
-                            if allow then eligible_npcs.Heracles = enc end
-                        elseif enc:find("Athena") and not currentRun.SpawnRecord.NPC_Athena_01 and biomeDepth > config.NPCSpawnValues.MinDepthAthena then
-                            eligible_npcs.Athena = enc
-                        elseif enc:find("Icarus") and not currentRun.SpawnRecord.NPC_Icarus_01 and biomeDepth > config.NPCSpawnValues.MinDepthIcarus then
+                            if (config.NPCSpawnValues.Heracles or 0) == 0 or currentRun.SpawnRecord.NPC_Heracles_01 or not allow or biomeDepth <= config.NPCSpawnValues.MinDepthHeracles then
+                                shouldInclude = false
+                            else
+                                eligible_npcs.Heracles = enc
+                            end
+
+                        elseif enc:find("Athena") then
+                            if (config.NPCSpawnValues.Athena or 0) == 0 or currentRun.SpawnRecord.NPC_Athena_01 or biomeDepth <= config.NPCSpawnValues.MinDepthAthena then
+                                shouldInclude = false
+                            else
+                                eligible_npcs.Athena = enc
+                            end
+
+                        elseif enc:find("Icarus") then
                             local allow = true
                             if room.RoomSetName == "O" and not config.NPCSpawnValues.IcarusBiomes.Rift then allow = false end
                             if room.RoomSetName == "P" and not config.NPCSpawnValues.IcarusBiomes.Olympus then allow = false end
-                            if allow then eligible_npcs.Icarus = enc end
+                            if (config.NPCSpawnValues.Icarus or 0) == 0 or currentRun.SpawnRecord.NPC_Icarus_01 or not allow or biomeDepth <= config.NPCSpawnValues.MinDepthIcarus then
+                                shouldInclude = false
+                            else
+                                eligible_npcs.Icarus = enc
+                            end
                         end
+                    end
+
+                    if shouldInclude then
+                        table.insert(unique_list, enc)
                     end
                 end
             end
@@ -251,14 +241,105 @@ modutil.mod.Path.Wrap("ChooseEncounter", function(base, currentRun, room, args)
 
 end)
 
+modutil.mod.Path.Wrap("StartNewRun", function(base, prevRun, args)
+    local currentRun = base(prevRun, args)
+
+    -- If the feature is toggled off at runtime, just return
+    if not config.NPCSpawnController then
+        return currentRun
+    end
+
+    -- Initialize spawn flags
+    -- currentRun.UseRecord = currentRun.UseRecord or {}
+    currentRun.SpawnRecord = currentRun.SpawnRecord or {}
+
+    currentRun.SpawnRecord.NPC_Artemis_Field_01 = false
+    currentRun.SpawnRecord.NPC_Heracles_01 = false
+    currentRun.SpawnRecord.NPC_Athena_01 = false
+    currentRun.SpawnRecord.NPC_Icarus_01 = false
+
+    -- Override the NPC spacing requirement
+    NamedRequirementsData.NoRecentFieldNPCEncounter[1].SumPrevRooms = config.NPCSpawnValues.NPCSpacing
+
+    -- Override the min depth requirements for Artemis, Athena, and Icarus
+    EncounterData.BaseArtemisCombat.GameStateRequirements[3].Value = config.NPCSpawnValues.MinDepthArtemis
+    EncounterData.BaseAthenaCombat.GameStateRequirements[3].Value = config.NPCSpawnValues.MinDepthAthena
+    EncounterData.BaseIcarusCombat.GameStateRequirements[2].Value = config.NPCSpawnValues.MinDepthIcarus
+
+    -- Force story rooms at specific depths if enabled
+    if config.AlwaysEncounterStoryRooms.F.Enabled then
+        RoomSetData.F.F_Story01.ForceAtBiomeDepthMin = 4
+        RoomSetData.F.F_Story01.ForceAtBiomeDepthMax = 8
+    end
+    if config.AlwaysEncounterStoryRooms.G.Enabled then
+        RoomSetData.G.G_Story01.ForceAtBiomeDepthMin = 3
+        RoomSetData.G.G_Story01.ForceAtBiomeDepthMax = 6
+    end
+    if config.AlwaysEncounterStoryRooms.N.Enabled then
+        RoomSetData.N.N_Story01.ForceAtBiomeDepthMin = 0
+        RoomSetData.N.N_Story01.ForceAtBiomeDepthMax = 1
+    end
+    if config.AlwaysEncounterStoryRooms.O.Enabled then
+        RoomSetData.O.O_Story01.ForceAtBiomeDepthMin = 3
+        RoomSetData.O.O_Story01.ForceAtBiomeDepthMax = 5
+    end
+    if config.AlwaysEncounterStoryRooms.P.Enabled then
+        RoomSetData.P.P_Story01.ForceAtBiomeDepthMin = 2
+        RoomSetData.P.P_Story01.ForceAtBiomeDepthMax = 7
+    end
+
+    return currentRun
+end)
+
+modutil.mod.Path.Wrap("BeginArtemisEncounter", function(base, currentRun, room, args)
+    -- runtime gate: no-op when feature disabled or when no current run
+    if not config.NPCSpawnController or not currentRun then
+        return base(currentRun, room, args)
+    end
+
+    currentRun.SpawnRecord = currentRun.SpawnRecord or {}
+    currentRun.SpawnRecord.NPC_Artemis_Field_01 = true
+    return base(currentRun, room, args)
+end)
+
+modutil.mod.Path.Wrap("BeginHeraclesEncounter", function(base, currentRun, room, args)
+    -- runtime gate: no-op when feature disabled or when no current run
+    if not config.NPCSpawnController or not currentRun then
+        return base(currentRun, room, args)
+    end
+
+    currentRun.SpawnRecord = currentRun.SpawnRecord or {}
+    currentRun.SpawnRecord.NPC_Heracles_01 = true
+    return base(currentRun, room, args)
+end)
+
+modutil.mod.Path.Wrap("BeginAthenaEncounter", function(base, currentRun, room, args)
+    -- runtime gate: no-op when feature disabled or when no current run
+    if not config.NPCSpawnController or not currentRun then
+        return base(currentRun, room, args)
+    end
+
+    currentRun.SpawnRecord = currentRun.SpawnRecord or {}
+    currentRun.SpawnRecord.NPC_Athena_01 = true
+    return base(currentRun, room, args)
+end)
+
+modutil.mod.Path.Wrap("BeginIcarusEncounter", function(base, currentRun, room, args)
+    -- runtime gate: no-op when feature disabled or when no current run
+    if not config.NPCSpawnController or not currentRun then
+        return base(currentRun, room, args)
+    end
+
+    currentRun.SpawnRecord = currentRun.SpawnRecord or {}
+    currentRun.SpawnRecord.NPC_Icarus_01 = true
+    return base(currentRun, room, args)
+end)
 
 -- UI Drawing function
 function DrawNPCChanceUI()
 	-- local openNPC = rom.ImGui.CollapsingHeader("NPC Assist Spawn Chances")
     local open = rom.ImGui.CollapsingHeader("NPC Spawn Boost Settings")
 	if open then
-
-        -- rom.ImGui.BeginChild("NPC Spawn", 0, 440)
 
         local spacingValue, spacingChanged = rom.ImGui.SliderInt("NPC Spacing (def 6)", config.NPCSpawnValues.NPCSpacing, 1, 20)
         if spacingChanged then
